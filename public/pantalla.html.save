@@ -1,0 +1,67 @@
+
+
+
+                    overlay.innerHTML = `¡GANASTE!<br><span style="font-size:45px;">🏆 ${configJuego.premios[4]}</span>`;
+                    overlay.className = "mostrar-mensaje arcade-win"; 
+                    juegoTerminado = true;
+                } else {
+                    document.getElementById('audio-win').play().catch(()=>{});
+                    overlay.innerHTML = "¡ACIERTO! AVANZAS"; 
+                    overlay.style.color = "#33ff33"; 
+                    overlay.classList.add('mostrar-mensaje');
+                    
+                    setTimeout(() => { 
+                        faseActual++; 
+                        actualizarFaseVisual(); 
+                        overlay.classList.remove('mostrar-mensaje');
+                    }, 1400);
+                }
+            }
+            socket.emit('syncTablero', { faseActual, juegoTerminado });
+        });
+
+        function actualizarFaseVisual() {
+            document.querySelectorAll('.premio-item').forEach(el => el.classList.remove('premio-actual'));
+            if(document.getElementById(`premio-fase-${faseActual}`)) {
+                document.getElementById(`premio-fase-${faseActual}`).classList.add('premio-actual');
+            }
+            
+            for(let i=1; i<=5; i++) {
+                let cc = document.getElementById(`cliente-caja-${i}`);
+                let hc = document.getElementById(`casa-caja-${i}`);
+                if(i === faseActual) {
+                    cc.classList.remove('inactiva'); 
+                    hc.classList.remove('inactiva');
+                } else if (i > faseActual) {
+                    cc.classList.add('inactiva'); 
+                    hc.classList.add('inactiva');
+                }
+            }
+        }
+
+        socket.on('ejecutarReiniciar', () => {
+            faseActual = 1; 
+            juegoTerminado = false; 
+            configJuego.modoManual = false; 
+            patronAleatorio = generarPatronAleatorio(); 
+            
+            const overlay = document.getElementById('mensaje-overlay');
+            overlay.className = "";
+            overlay.innerHTML = "";
+            overlay.style.top = "85px"; // Restaurar posición del mensaje
+            overlay.style.fontSize = "35px"; // Restaurar tamaño original
+            
+            for(let i=1; i<=5; i++) {
+                let cc = document.getElementById(`cliente-caja-${i}`); 
+                let ch = document.getElementById(`casa-caja-${i}`);
+                cc.className = (i === 1) ? 'caja' : 'caja inactiva'; 
+                ch.className = (i === 1) ? 'caja' : 'caja inactiva';
+                cc.innerText = '?';
+                ch.innerText = '?';
+            }
+            actualizarFaseVisual(); 
+            socket.emit('syncTablero', { faseActual, juegoTerminado });
+        });
+    </script>
+</body>
+</html>

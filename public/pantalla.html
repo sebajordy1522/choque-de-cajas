@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Choque de Cajas</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root { 
+            --box-color: #8B4513; 
+            --bg-color: #0a0a0c;
+            --text-color: #ffffff;
+            --main-font: 'Arial', sans-serif;
+            --title-size: 45px;
+        }
+        
+        body { 
+            background-color: var(--bg-color); color: var(--text-color); font-family: var(--main-font); 
+            margin: 0; height: 100vh; overflow: hidden; display: flex; flex-direction: column; position: relative;
+        }
+
+        body::before {
+            content: ''; position: absolute; top:0; left:0; width:100%; height:100%;
+            background: radial-gradient(circle at center, rgba(255,255,255,0.05) 0%, rgba(0,0,0,0.6) 100%);
+            z-index: -2; pointer-events: none;
+        }
+
+        .bubbles { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; overflow: hidden; }
+        .bubble { position: absolute; bottom: -50px; background: rgba(255, 255, 255, 0.1); border-radius: 50%; box-shadow: 0 0 10px rgba(255,255,255,0.1); animation: floatUp linear infinite; }
+        @keyframes floatUp { to { transform: translateY(-120vh); opacity: 0; } }
+
+        /* EL PIN CENTRADO */
+        #pin-display-big { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            background: rgba(15, 17, 21, 0.95); border: 2px solid #58a6ff; color: #58a6ff; 
+            padding: 30px 50px; font-size: 60px; font-weight: 900; border-radius: 20px; z-index: 2000; 
+            font-family: 'Courier New', monospace; box-shadow: 0 0 40px rgba(88, 166, 255, 0.4); 
+            text-align: center; transition: opacity 0.5s, transform 0.5s; letter-spacing: 5px;
+        }
+        .pin-oculto { opacity: 0 !important; transform: translate(-50%, -50%) scale(0.8) !important; pointer-events: none; }
+        
+        #pin-display-small {
+            position: absolute; bottom: 10px; right: 15px; color: rgba(255,255,255,0.15); font-family: 'Courier New', monospace; font-size: 14px; opacity: 0; transition: opacity 1s; z-index: 100; font-weight: bold;
+        }
+
+        #btn-fullscreen { position: absolute; top: 15px; right: 15px; background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.5); border: none; padding: 10px 15px; cursor: pointer; border-radius: 5px; z-index: 100; font-size: 14px; font-weight: bold;}
+        #btn-fullscreen:hover { background: rgba(255,255,255,0.4); color: white; }
+        
+        #btn-audio { position: absolute; top: 15px; right: 180px; background: #da3633; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 5px; z-index: 100; font-size: 14px; font-weight: bold; box-shadow: 0 0 10px rgba(218,54,51,0.5);}
+        #btn-audio:hover { background: #ff4d4d; }
+
+        #banner { 
+            display: flex; align-items: center; justify-content: center; 
+            padding: 15px 20px; background: rgba(0, 0, 0, 0.4); position: relative; border-bottom: 2px solid rgba(255,255,255,0.1);
+            min-height: 80px; z-index: 50;
+        }
+        
+        #logo-img { position: absolute; left: 180px; max-height: 80px; display: none; border-radius: 8px; box-shadow: 0 0 15px rgba(255,255,255,0.1); }
+        
+        [contenteditable="true"] { outline: none; border-bottom: 1px dashed rgba(255,255,255,0.3); padding: 2px 6px; }
+        [contenteditable="true"]:focus { background: rgba(255,255,255,0.15); border-bottom: 1px solid white; }
+        
+        #titulo-juego { font-size: var(--title-size); margin: 0; text-transform: uppercase; text-shadow: 0 0 15px rgba(0,0,0,0.8); font-weight: 900; z-index: 10;}
+        
+        #mensaje-overlay { 
+            position: absolute; top: 85px; left: 50%; transform: translateX(-50%) scale(0);
+            font-size: 35px; font-weight: 900; text-transform: uppercase; text-shadow: 2px 2px 10px #000; 
+            opacity: 0; transition: opacity 0.3s, transform 0.3s; z-index: 500; white-space: nowrap;
+        }
+        .mostrar-mensaje { opacity: 1 !important; transform: translateX(-50%) scale(1.1) !important; }
+
+        #area-juego { 
+            display: grid; grid-template-columns: 1fr 280px; gap: 20px; 
+            flex: 1; padding: 25px 30px 25px 30px; align-items: center; box-sizing: border-box; 
+        }
+
+        .grid-cajas { display: flex; flex-direction: column; gap: 25px; justify-content: center; }
+        .fila { display: flex; gap: 15px; align-items: center; }
+        .etiqueta-fila { font-size: 24px; font-weight: bold; width: 170px; text-align: right; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        
+        .caja { 
+            width: 100px; height: 100px; background-color: var(--box-color); border: 4px solid rgba(0,0,0,0.5); 
+            display: flex; justify-content: center; align-items: center; font-size: 55px; font-weight: 900; 
+            color: #FFD700; text-shadow: 3px 3px 0px #000; box-shadow: inset 0 0 20px rgba(0,0,0,0.7), 3px 3px 10px rgba(0,0,0,0.5); 
+            transition: 0.3s; border-radius: 10px;
+        }
+        .caja.inactiva { opacity: 0.35; filter: grayscale(1) brightness(0.4); box-shadow: none; }
+        
+        .caja.caja-correcta { background: #238636 !important; border-color: #2ea043 !important; color: #ffffff !important; box-shadow: 0 0 20px rgba(46, 160, 67, 0.8) !important; animation: bounceCheck 0.5s ease; }
+        .caja.caja-mala { background: #da3633 !important; border-color: #a02020 !important; color: #ffffff !important; box-shadow: 0 0 25px rgba(218, 54, 51, 0.9) !important; }
+
+        @keyframes bounceCheck { 0% { transform: scale(0.8); } 50% { transform: scale(1.15); } 100% { transform: scale(1); } }
+        .anim-explotar { animation: shakeBoom 0.5s forwards; }
+        @keyframes shakeBoom { 0% { transform: translate(1px, 1px) rotate(0deg) scale(1); } 20% { transform: translate(-3px, 0px) rotate(5deg) scale(1.15); } 40% { transform: translate(3px, 2px) rotate(-5deg) scale(1.2); } 60% { transform: translate(-3px, 2px) rotate(5deg) scale(1.15); } 80% { transform: translate(3px, -2px) rotate(-5deg) scale(1.05); } 100% { transform: translate(0px, 0px) rotate(0deg) scale(1); } }
+
+        #piramide-premios { display: flex; flex-direction: column-reverse; justify-content: center; gap: 8px; background: rgba(0,0,0,0.4); padding: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); }
+        .premio-item { padding: 10px 14px; background: rgba(255,255,255,0.05); border-radius: 6px; font-size: 15px; text-align: center; border: 1px solid transparent; transition: 0.3s; color: var(--text-color); font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.7; }
+        .premio-actual { background: linear-gradient(90deg, #d4af37, #ffdf00); color: #000; font-weight: 900; opacity: 1; border: 1px solid #fff; box-shadow: 0 0 15px rgba(255, 223, 0, 0.7); transform: scale(1.03); }
+        
+        @keyframes arcadeBlink { 0% { color: #ff0000; } 25% { color: #00ff00; } 50% { color: #00ffff; } 75% { color: #ffff00; } 100% { color: #ff00ff; } }
+        .arcade-win { animation: arcadeBlink 0.3s infinite; }
+    </style>
+</head>
+<body>
+    <div class="bubbles" id="burbujas-fondo"></div>
+    
+    <div id="pin-display-big">
+        <div style="font-size: 18px; color: #8b949e; font-family: 'Arial', sans-serif; margin-bottom: 10px; letter-spacing: 1px;">ESPERANDO CONTROL CELULAR</div>
+        PIN: <span id="pin-numero"></span>
+    </div>
+
+    <div id="pin-display-small"></div>
+
+    <button id="btn-audio" onclick="desbloquearSonido()">🔇 Desbloquear Sonido</button>
+    <button id="btn-fullscreen" onclick="toggleFullscreen()">🔲 Pantalla Completa</button>
+    
+    <div id="banner">
+        <img id="logo-img" src="" alt="Logo">
+        <h1 id="titulo-juego" contenteditable="true">CHOQUE DE CAJAS 💥</h1>
+    </div>
+    
+    <div id="mensaje-overlay"></div>
+
+    <div id="area-juego">
+        <div class="grid-cajas">
+            <div class="fila" id="fila-cliente"><div class="etiqueta-fila" id="label-cliente" contenteditable="true">CLIENTE</div></div>
+            <div class="fila" id="fila-casa"><div class="etiqueta-fila" id="label-casa" contenteditable="true">LA CASA</div></div>
+        </div>
+        <div id="piramide-premios"></div>
+    </div>
+    
+    <audio id="audio-win" src="win.mp3"></audio>
+    <audio id="audio-lose" src="buzz.mp3"></audio>
+    <audio id="audio-check" src="check.mp3"></audio>
+    <audio id="audio-suspense" src="suspense.mp3" loop></audio>
+
+    <script>
+        const socket = io();
+        let faseActual = 1; 
+        let juegoTerminado = false;
+        
+        const roomPin = Math.floor(1000 + Math.random() * 9000).toString();
+        socket.emit('joinRoom', roomPin); 
+        document.getElementById('pin-numero').innerText = roomPin;
+        document.getElementById('pin-display-small').innerText = "PIN: " + roomPin; 
+
+        let configJuego = { premios: ["Shot Tequila", "Piscola", "Tabla Mixta", "2x1 Tragos", "GRAN PREMIO VIP"], modoManual: false, mapaBombas: {} };
+        let patronAleatorio = [];
+
+        function desbloquearSonido() {
+            const audios = ['audio-win', 'audio-lose', 'audio-check', 'audio-suspense'];
+            audios.forEach(id => {
+                let a = document.getElementById(id);
+                a.volume = 0; 
+                let promise = a.play();
+                if (promise !== undefined) {
+                    promise.then(() => { a.pause(); a.currentTime = 0; a.volume = 1; }).catch(error => console.log("Bloqueo:", error));
+                }
+            });
+            const btn = document.getElementById('btn-audio');
+            btn.innerText = "🔊 Sonido OK"; btn.style.background = "#238636";
+            setTimeout(() => btn.style.display = 'none', 3000);
+        }
+
+        const bubbleContainer = document.getElementById('burbujas-fondo');
+        for (let i = 0; i < 20; i++) {
+            let b = document.createElement('div');
+            b.className = 'bubble'; b.style.left = Math.random() * 100 + 'vw';
+            b.style.width = Math.random() * 12 + 6 + 'px'; b.style.height = b.style.width;
+            b.style.animationDuration = Math.random() * 5 + 4 + 's';
+            bubbleContainer.appendChild(b);
+        }
+
+        function generarPatronAleatorio() {
+            let patron = ['ninguna']; 
+            for(let i = 1; i < 5; i++) patron.push(Math.random() < 0.5 ? 'cliente' : 'casa');
+            return patron;
+        }
+        patronAleatorio = generarPatronAleatorio();
+
+        const generarCajas = (idFila) => {
+            const fila = document.getElementById(idFila);
+            for(let i=1; i<=5; i++) {
+                let caja = document.createElement('div');
+                caja.className = i === 1 ? 'caja' : 'caja inactiva'; caja.innerText = '?';
+                caja.id = `${idFila.replace('fila-', '')}-caja-${i}`; fila.appendChild(caja);
+            }
+        };
+        generarCajas('fila-cliente'); generarCajas('fila-casa');
+        renderizarPiramide();
+
+        // COMPATIBILIDAD UNIVERSAL: MAC, WINDOWS, LINUX
+        function toggleFullscreen() {
+            let elem = document.documentElement;
+            if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {
+                if (elem.requestFullscreen) { elem.requestFullscreen(); }
+                else if (elem.webkitRequestFullscreen) { elem.webkitRequestFullscreen(); } // Safari / Mac
+                else if (elem.msRequestFullscreen) { elem.msRequestFullscreen(); } // Edge / Windows
+            } else {
+                if (document.exitFullscreen) { document.exitFullscreen(); }
+                else if (document.webkitExitFullscreen) { document.webkitExitFullscreen(); }
+                else if (document.msExitFullscreen) { document.msExitFullscreen(); }
+            }
+        }
+
+        function renderizarPiramide() {
+            const piramide = document.getElementById('piramide-premios'); 
+            piramide.innerHTML = '';
+            for(let i=1; i<=5; i++) {
+                let div = document.createElement('div');
+                div.className = `premio-item ${i === faseActual ? 'premio-actual' : ''}`;
+                div.id = `premio-fase-${i}`; div.innerText = `${i}° ${configJuego.premios[i-1]}`;
+                piramide.appendChild(div);
+            }
+        }
+
+        socket.on('aplicarConfig', (cfg) => {
+            document.getElementById('pin-display-big').classList.add('pin-oculto');
+            document.getElementById('pin-display-small').style.opacity = '1';
+
+            configJuego.premios = cfg.premios; configJuego.modoManual = cfg.modoManual; configJuego.mapaBombas = cfg.mapaBombas;
+            if(cfg.colorFondo) document.documentElement.style.setProperty('--bg-color', cfg.colorFondo);
+            if(cfg.colorCajas) document.documentElement.style.setProperty('--box-color', cfg.colorCajas);
+            if(cfg.colorTexto) document.documentElement.style.setProperty('--text-color', cfg.colorTexto);
+            if(cfg.fuente) document.documentElement.style.setProperty('--main-font', cfg.fuente);
+            if(cfg.tamanoTexto) document.documentElement.style.setProperty('--title-size', cfg.tamanoTexto + 'px');
+
+            if(cfg.logoBase64 && cfg.logoBase64 !== "") {
+                document.getElementById('logo-img').src = cfg.logoBase64;
+                document.getElementById('logo-img').style.display = 'block';
+            } else {
+                document.getElementById('logo-img').style.display = 'none';
+            }
+            renderizarPiramide();
+        });
+
+        socket.on('ejecutarAbrir', (data) => {
+            if(juegoTerminado) return;
+            document.getElementById('audio-suspense').pause();
+            const cajaEl = document.getElementById(`${data.seleccion}-caja-${faseActual}`);
+            const overlay = document.getElementById('mensaje-overlay');
+            
+            let esBomba = configJuego.modoManual ? !!configJuego.mapaBombas[`${data.seleccion}-${faseActual}`] : (patronAleatorio[faseActual - 1] === data.seleccion);
+
+            if(esBomba) {
+                cajaEl.innerText = "❌"; cajaEl.classList.add('caja-mala'); cajaEl.classList.add('anim-explotar'); 
+                document.getElementById('audio-lose').play().catch(()=>{});
+                overlay.innerHTML = "¡BOOM! EXPLOTÓ"; overlay.style.color = "#ff3333"; overlay.classList.add('mostrar-mensaje'); 
+                juegoTerminado = true;
+            } else {
+                cajaEl.innerText = "✔️"; cajaEl.classList.add('caja-correcta');
+                if(faseActual === 5) {
+                    document.getElementById('audio-win').play().catch(()=>{});
+                    overlay.style.top = "40%"; overlay.style.fontSize = "60px";
+                    overlay.innerHTML = `¡GANASTE!<br><span style="font-size:45px;">🏆 ${configJuego.premios[4]}</span>`;
+                    overlay.className = "mostrar-mensaje arcade-win"; 
+                    juegoTerminado = true;
+                } else {
+                    document.getElementById('audio-check').play().catch(()=>{});
+                    overlay.innerHTML = "¡ACIERTO! AVANZAS"; overlay.style.color = "#33ff33"; overlay.classList.add('mostrar-mensaje');
+                    setTimeout(() => { 
+                        faseActual++; actualizarFaseVisual(); overlay.classList.remove('mostrar-mensaje');
+                        document.getElementById('audio-suspense').play().catch(()=>{});
+                    }, 1400);
+                }
+            }
+            socket.emit('syncTablero', { faseActual, juegoTerminado });
+        });
+
+        function actualizarFaseVisual() {
+            document.querySelectorAll('.premio-item').forEach(el => el.classList.remove('premio-actual'));
+            if(document.getElementById(`premio-fase-${faseActual}`)) document.getElementById(`premio-fase-${faseActual}`).classList.add('premio-actual');
+            for(let i=1; i<=5; i++) {
+                let cc = document.getElementById(`cliente-caja-${i}`); let hc = document.getElementById(`casa-caja-${i}`);
+                if(i === faseActual) { cc.classList.remove('inactiva'); hc.classList.remove('inactiva'); } 
+                else if (i > faseActual) { cc.classList.add('inactiva'); hc.classList.add('inactiva'); }
+            }
+        }
+
+        socket.on('ejecutarReiniciar', () => {
+            faseActual = 1; juegoTerminado = false; configJuego.modoManual = false; patronAleatorio = generarPatronAleatorio(); 
+            let audioSuspense = document.getElementById('audio-suspense');
+            audioSuspense.currentTime = 0;
+            let playPromise = audioSuspense.play();
+            if (playPromise !== undefined) playPromise.catch(error => console.log("Audio prevenido"));
+            
+            const overlay = document.getElementById('mensaje-overlay');
+            overlay.className = ""; overlay.innerHTML = ""; overlay.style.top = "85px"; overlay.style.fontSize = "35px"; 
+            
+            for(let i=1; i<=5; i++) {
+                let cc = document.getElementById(`cliente-caja-${i}`); let ch = document.getElementById(`casa-caja-${i}`);
+                cc.className = (i === 1) ? 'caja' : 'caja inactiva'; ch.className = (i === 1) ? 'caja' : 'caja inactiva';
+                cc.innerText = '?'; ch.innerText = '?';
+            }
+            actualizarFaseVisual(); 
+            socket.emit('syncTablero', { faseActual, juegoTerminado });
+        });
+    </script>
+</body>
+</html>
